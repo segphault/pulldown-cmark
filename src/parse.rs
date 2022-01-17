@@ -98,6 +98,9 @@ pub(crate) enum ItemBody {
     TableRow,
     TableCell,
 
+    // Markdoc - parameter is true for inline
+    MarkdocTag(bool),
+
     // Dummy node at the top of the tree - should not be used otherwise!
     Root,
 }
@@ -1467,6 +1470,7 @@ fn item_to_event<'a>(item: Item, text: &'a str, allocs: &Allocations<'a>) -> Eve
         ItemBody::TableRow => Tag::TableRow,
         ItemBody::Table(alignment_ix) => Tag::Table(allocs[alignment_ix].clone()),
         ItemBody::FootnoteDefinition(cow_ix) => Tag::FootnoteDefinition(allocs[cow_ix].clone()),
+        ItemBody::MarkdocTag(inline) => return Event::MarkdocTag(text[item.start..item.end].into(), inline),
         _ => panic!("unexpected item body {:?}", item.body),
     };
 

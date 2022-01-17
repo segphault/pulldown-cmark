@@ -64,6 +64,7 @@ pub fn main() -> std::io::Result<()> {
     );
     opts.optflag("L", "enable-tasklists", "enable GitHub-style task lists");
     opts.optflag("P", "enable-smart-punctuation", "enable smart punctuation");
+    opts.optflag("M", "enable-markdoc", "enable Markdoc tag parsing");
 
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
@@ -91,6 +92,9 @@ pub fn main() -> std::io::Result<()> {
     }
     if matches.opt_present("enable-smart-punctuation") {
         opts.insert(Options::ENABLE_SMART_PUNCTUATION);
+    }
+    if matches.opt_present("enable-markdoc") {
+        opts.insert(Options::ENABLE_MARKDOC_TAGS);
     }
 
     let mut input = String::new();

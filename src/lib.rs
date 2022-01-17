@@ -256,6 +256,8 @@ pub enum Event<'a> {
     Rule,
     /// A task list marker, rendered as a checkbox in HTML. Contains a true when it is checked.
     TaskListMarker(bool),
+    // A Markdoc Tag
+    MarkdocTag(CowStr<'a>, bool),
 }
 
 /// Table column text alignment.
@@ -285,5 +287,7 @@ bitflags::bitflags! {
         /// with the content `text`, ID `id`, and classes `class1` and `class2`.
         /// Note that attributes (ID and classes) should be space-separeted.
         const ENABLE_HEADING_ATTRIBUTES = 1 << 6;
+        // Extension for identifying Markdoc tags
+        const ENABLE_MARKDOC_TAGS = 1 << 7;
     }
 }

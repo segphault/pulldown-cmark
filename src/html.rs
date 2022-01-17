@@ -131,7 +131,8 @@ where
                 }
                 TaskListMarker(false) => {
                     self.write("<input disabled=\"\" type=\"checkbox\"/>\n")?;
-                }
+                },
+                MarkdocTag(..) => (),
             }
         }
         Ok(())
@@ -396,6 +397,7 @@ where
                 }
                 TaskListMarker(true) => self.write("[x]")?,
                 TaskListMarker(false) => self.write("[ ]")?,
+                MarkdocTag(..) => (),
             }
         }
         Ok(())

@@ -160,6 +160,19 @@ impl<'a, 'b> FirstPass<'a, 'b> {
 
         let ix = start_ix + line_start.bytes_scanned();
 
+        // Markdoc tags
+        if self.options.contains(Options::ENABLE_MARKDOC_TAGS) && bytes[ix..].starts_with(b"{%") {
+            if let Some(tag_block_end) = scan_markdoc_tag_end(&bytes[ix..]) {
+                self.tree.append(Item {
+                    start: ix,
+                    end: ix + tag_block_end,
+                    body: ItemBody::MarkdocTag(false)
+                });
+
+                return ix + tag_block_end;
+            }
+        }
+
         // HTML Blocks
         if bytes[ix] == b'<' {
             // Types 1-5 are all detected by one function and all end with the same
@@ -464,7 +477,15 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         if let TableParseMode::Active = mode {
                             return LoopInstruction::BreakAtWith(ix, None);
                         }
-
+ 
+                        // Terminate previous item if the next line is a block markdoc tag
+                        if self.options.contains(Options::ENABLE_MARKDOC_TAGS) {
+                            let first_char = scan_whitespace_no_nl(&bytes[(ix + 1)..]);
+                            if let Some(..) = scan_markdoc_tag_end(&bytes[(ix + first_char + 1)..]) {
+                                return LoopInstruction::BreakAtWith(ix, None);
+                            }
+                        }
+                        
                         let mut i = ix;
                         let eol_bytes = scan_eol(&bytes[ix..]).unwrap();
                         if mode == TableParseMode::Scan && pipes > 0 {
@@ -589,6 +610,20 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         });
                         begin_text = ix + count;
                         LoopInstruction::ContinueAndSkip(count - 1)
+                    }
+                    b'{' => {
+                        let mut tag_skip = 0;
+                        if let Some(tag_block_end) = scan_markdoc_tag_end(&bytes[ix..]) {
+                            self.tree.append_text(begin_text, ix);
+                            self.tree.append(Item {
+                                start: ix,
+                                end: ix + tag_block_end,
+                                body: ItemBody::MarkdocTag(true)
+                            });
+                            begin_text = ix + tag_block_end;
+                            tag_skip = tag_block_end - 1;
+                        }
+                        LoopInstruction::ContinueAndSkip(tag_skip)
                     }
                     b'<' => {
                         // Note: could detect some non-HTML cases and early escape here, but not
@@ -1524,6 +1559,10 @@ fn special_bytes(options: &Options) -> [bool; 256] {
             bytes[byte as usize] = true;
         }
     }
+    // Markdoc
+    if options.contains(Options::ENABLE_MARKDOC_TAGS) {
+        bytes[b'{' as usize] = true;
+    }
 
     bytes
 }
@@ -1754,6 +1793,10 @@ mod simd {
             for &byte in &[b'.', b'-', b'"', b'\''] {
                 add_lookup_byte(&mut lookup, byte);
             }
+        }
+        // Markdoc
+        if options.contains(Options::ENABLE_MARKDOC_TAGS) {
+            add_lookup_byte(&mut lookup, b'{');
         }
 
         lookup

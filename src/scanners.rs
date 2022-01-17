@@ -1299,6 +1299,46 @@ pub(crate) fn scan_inline_html_processing(
     None
 }
 
+enum MarkdocScanState {
+    Normal,
+    String,
+    Escape,
+}
+
+pub(crate) fn scan_markdoc_tag_end(bytes: &[u8]) -> Option<usize> {
+    if !bytes.starts_with(b"{%") {
+        return None
+    }
+    
+    let mut state = MarkdocScanState::Normal;
+    let mut stack = 0;
+
+    for (i, ch) in bytes.iter().enumerate() {
+        match state {
+            MarkdocScanState::String => match ch {
+                b'"' => state = MarkdocScanState::Normal,
+                b'\\' => state = MarkdocScanState::Escape,
+                _ => ()
+            },
+            MarkdocScanState::Escape => state = MarkdocScanState::String,
+            MarkdocScanState::Normal => {
+                if *ch == b'"' {
+                    state = MarkdocScanState::String
+                } else if bytes[i..].starts_with(b"{%") {
+                    stack += 1
+                } else if bytes[i..].starts_with(b"%}") {
+                    stack -= 1;
+                    if stack == 0 {
+                        return Some(i + 2)
+                    }
+                }
+            }
+        }
+    }
+
+    return None
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1312,5 +1352,16 @@ mod test {
     #[test]
     fn overflow_by_addition() {
         assert!(scan_listitem(b"1844674407370955161615!").is_none());
+    }
+
+    #[test]
+    fn markdoc_scan_test() {
+        assert_eq!(scan_markdoc_tag_end(b"{% this is a test %} foo"), Some(20));
+        assert_eq!(scan_markdoc_tag_end(b"{% this is {{ a test %} foo"), Some(23));
+        assert_eq!(scan_markdoc_tag_end(b"{% this is {{ test }} a test %} foo"), Some(31));
+        assert_eq!(scan_markdoc_tag_end(b"{% this is {{% test }} a test %} foo"), None);
+        assert_eq!(scan_markdoc_tag_end(b"{% this \"is\" a test %} foo"), Some(22));
+        assert_eq!(scan_markdoc_tag_end(b"{% this \"{% is %}\" a test %} foo"), Some(28));
+        assert_eq!(scan_markdoc_tag_end(b"{% this \"{% is %} a test %} foo"), None);
     }
 }
