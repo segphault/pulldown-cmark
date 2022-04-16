@@ -289,5 +289,10 @@ bitflags::bitflags! {
         const ENABLE_HEADING_ATTRIBUTES = 1 << 6;
         // Extension for identifying Markdoc tags
         const ENABLE_MARKDOC_TAGS = 1 << 7;
+        // Turn off indent-based code blocks
+        const DISABLE_INDENTED_CODE_BLOCKS = 1 << 8;
     }
 }
+
+
+pub use crate::scanners::scan_markdoc_tag_end;

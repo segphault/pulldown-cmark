@@ -152,7 +152,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let remaining_space = line_start.remaining_space();
 
         let indent = line_start.scan_space_upto(4);
-        if indent == 4 {
+        if !self.options.contains(Options::DISABLE_INDENTED_CODE_BLOCKS) && indent == 4 {
             let ix = start_ix + line_start.bytes_scanned();
             let remaining_space = line_start.remaining_space();
             return self.parse_indented_code_block(ix, remaining_space);
@@ -163,13 +163,21 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         // Markdoc tags
         if self.options.contains(Options::ENABLE_MARKDOC_TAGS) && bytes[ix..].starts_with(b"{%") {
             if let Some(tag_block_end) = scan_markdoc_tag_end(&bytes[ix..]) {
-                self.tree.append(Item {
-                    start: ix,
-                    end: ix + tag_block_end,
-                    body: ItemBody::MarkdocTag(false)
-                });
+                // Only parse as a block-level tag if it is on a line by itself
+                let is_block = bytes[(ix + tag_block_end)..]
+                    .iter()
+                    .find(|&&b| b != b' ' && b != b'\t')
+                    .map_or(true, |&b| b == b'\r' || b == b'\n');
 
-                return ix + tag_block_end;
+                if is_block {
+                    self.tree.append(Item {
+                        start: ix,
+                        end: ix + tag_block_end,
+                        body: ItemBody::MarkdocTag(false),
+                    });
+
+                    return ix + tag_block_end + 1;
+                }
             }
         }
 
@@ -481,11 +489,19 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         // Terminate previous item if the next line is a block markdoc tag
                         if self.options.contains(Options::ENABLE_MARKDOC_TAGS) {
                             let first_char = scan_whitespace_no_nl(&bytes[(ix + 1)..]);
-                            if let Some(..) = scan_markdoc_tag_end(&bytes[(ix + first_char + 1)..]) {
-                                return LoopInstruction::BreakAtWith(ix, None);
+                            if let Some(tag_end) =
+                                scan_markdoc_tag_end(&bytes[(ix + first_char + 1)..])
+                            {
+                                // Only do it if block-level tag is on a line by itself
+                                let is_block = bytes[(ix + first_char + 1 + tag_end)..]
+                                    .iter()
+                                    .find(|&&b| b != b' ' && b != b'\t')
+                                    .map_or(true, |&b| b == b'\r' || b == b'\n');
+                                if is_block {
+                                    return LoopInstruction::BreakAtWith(ix, None);
+                                }
                             }
                         }
-                        
                         let mut i = ix;
                         let eol_bytes = scan_eol(&bytes[ix..]).unwrap();
                         if mode == TableParseMode::Scan && pipes > 0 {

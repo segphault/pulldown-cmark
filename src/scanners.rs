@@ -1305,7 +1305,7 @@ enum MarkdocScanState {
     Escape,
 }
 
-pub(crate) fn scan_markdoc_tag_end(bytes: &[u8]) -> Option<usize> {
+pub fn scan_markdoc_tag_end(bytes: &[u8]) -> Option<usize> {
     if !bytes.starts_with(b"{%") {
         return None
     }
@@ -1336,7 +1336,7 @@ pub(crate) fn scan_markdoc_tag_end(bytes: &[u8]) -> Option<usize> {
         }
     }
 
-    return None
+    None
 }
 
 #[cfg(test)]
