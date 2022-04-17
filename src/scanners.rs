@@ -1311,8 +1311,6 @@ pub fn scan_markdoc_tag_end(bytes: &[u8]) -> Option<usize> {
     }
     
     let mut state = MarkdocScanState::Normal;
-    let mut stack = 0;
-
     for (i, ch) in bytes.iter().enumerate() {
         match state {
             MarkdocScanState::String => match ch {
@@ -1322,15 +1320,12 @@ pub fn scan_markdoc_tag_end(bytes: &[u8]) -> Option<usize> {
             },
             MarkdocScanState::Escape => state = MarkdocScanState::String,
             MarkdocScanState::Normal => {
+                if bytes[i..].starts_with(b"%}") {
+                    return Some(i + 2)
+                }
+
                 if *ch == b'"' {
                     state = MarkdocScanState::String
-                } else if bytes[i..].starts_with(b"{%") {
-                    stack += 1
-                } else if bytes[i..].starts_with(b"%}") {
-                    stack -= 1;
-                    if stack == 0 {
-                        return Some(i + 2)
-                    }
                 }
             }
         }

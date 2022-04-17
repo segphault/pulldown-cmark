@@ -628,18 +628,18 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         LoopInstruction::ContinueAndSkip(count - 1)
                     }
                     b'{' => {
-                        let mut tag_skip = 0;
-                        if let Some(tag_block_end) = scan_markdoc_tag_end(&bytes[ix..]) {
+                        if ix + 1 < bytes_len && bytes[ix + 1] == b'%' {
                             self.tree.append_text(begin_text, ix);
                             self.tree.append(Item {
                                 start: ix,
-                                end: ix + tag_block_end,
-                                body: ItemBody::MarkdocTag(true)
+                                end: ix + 2,
+                                body: ItemBody::MaybeMarkdocTag,
                             });
-                            begin_text = ix + tag_block_end;
-                            tag_skip = tag_block_end - 1;
+                            begin_text = ix + 2;
+                            LoopInstruction::ContinueAndSkip(1)
+                        } else {
+                            LoopInstruction::ContinueAndSkip(0)
                         }
-                        LoopInstruction::ContinueAndSkip(tag_skip)
                     }
                     b'<' => {
                         // Note: could detect some non-HTML cases and early escape here, but not

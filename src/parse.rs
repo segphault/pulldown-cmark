@@ -68,6 +68,7 @@ pub(crate) enum ItemBody {
     // bool indicates whether or not the preceeding section could be a reference
     MaybeLinkClose(bool),
     MaybeImage,
+    MaybeMarkdocTag,
 
     // These are inline items after resolution.
     Emphasis,
@@ -116,6 +117,7 @@ impl<'a> ItemBody {
                 | ItemBody::MaybeLinkOpen
                 | ItemBody::MaybeLinkClose(..)
                 | ItemBody::MaybeImage
+                | ItemBody::MaybeMarkdocTag
         )
     }
 }
@@ -216,6 +218,22 @@ impl<'input, 'callback> Parser<'input, 'callback> {
 
         while let Some(mut cur_ix) = cur {
             match self.tree[cur_ix].item.body {
+                ItemBody::MaybeMarkdocTag => {
+                    let start = self.tree[cur_ix].item.start;
+                    if let Some(ix) = scan_markdoc_tag_end(block_text[start..].as_bytes()) {
+                        let node = scan_nodes_to_ix(&self.tree, Some(cur_ix), start + ix);
+                        self.tree[cur_ix].item.body = ItemBody::MarkdocTag(true);
+                        self.tree[cur_ix].item.end = start + ix;
+                        self.tree[cur_ix].next = node;
+                        prev = cur;
+                        cur = node;
+                        if let Some(node_ix) = cur {
+                            self.tree[node_ix].item.start = max(self.tree[node_ix].item.start, start + ix); 
+                        }
+                        continue;
+                    }
+                    self.tree[cur_ix].item.body = ItemBody::Text;
+                }
                 ItemBody::MaybeHtml => {
                     let next = self.tree[cur_ix].next;
                     let autolink = if let Some(next_ix) = next {
@@ -1470,7 +1488,9 @@ fn item_to_event<'a>(item: Item, text: &'a str, allocs: &Allocations<'a>) -> Eve
         ItemBody::TableRow => Tag::TableRow,
         ItemBody::Table(alignment_ix) => Tag::Table(allocs[alignment_ix].clone()),
         ItemBody::FootnoteDefinition(cow_ix) => Tag::FootnoteDefinition(allocs[cow_ix].clone()),
-        ItemBody::MarkdocTag(inline) => return Event::MarkdocTag(text[item.start..item.end].into(), inline),
+        ItemBody::MarkdocTag(inline) => {
+            return Event::MarkdocTag(text[item.start..item.end].into(), inline)
+        }
         _ => panic!("unexpected item body {:?}", item.body),
     };
 
