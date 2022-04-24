@@ -161,22 +161,24 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let ix = start_ix + line_start.bytes_scanned();
 
         // Markdoc tags
-        if self.options.contains(Options::ENABLE_MARKDOC_TAGS) && bytes[ix..].starts_with(b"{%") {
-            if let Some(tag_block_end) = scan_markdoc_tag_end(&bytes[ix..]) {
-                // Only parse as a block-level tag if it is on a line by itself
-                let is_block = bytes[(ix + tag_block_end)..]
-                    .iter()
-                    .find(|&&b| b != b' ' && b != b'\t')
-                    .map_or(true, |&b| b == b'\r' || b == b'\n');
+        if self.options.contains(Options::ENABLE_MARKDOC_TAGS)
+            && self.text[ix..].trim().starts_with("{%")
+        {
+            if let Some(tag_start) = self.text[ix..].find("{%") {
+                if let Some(tag_block_end) = scan_markdoc_tag_end(&bytes[ix + tag_start..]) {
+                    let start = ix + tag_start;
+                    let end = start + tag_block_end;
+                    if let Some(n) = scan_blank_line(&bytes[end..]) {
+                        if markdoc_tag_has_name(&self.text[start..end]) {
+                            self.tree.append(Item {
+                                start: ix + tag_start,
+                                end: ix + tag_start + tag_block_end,
+                                body: ItemBody::MarkdocTag(false),
+                            });
 
-                if is_block {
-                    self.tree.append(Item {
-                        start: ix,
-                        end: ix + tag_block_end,
-                        body: ItemBody::MarkdocTag(false),
-                    });
-
-                    return ix + tag_block_end + 1;
+                            return ix + tag_start + tag_block_end + n;
+                        }
+                    }
                 }
             }
         }
@@ -323,6 +325,16 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         ix += line_start.bytes_scanned();
         if scan_paragraph_interrupt(&bytes[ix..]) {
             return None;
+        }
+
+        // Markdoc block tag terminates a table
+        if self.options.contains(Options::ENABLE_MARKDOC_TAGS) && self.text[ix..].starts_with("{%")
+        {
+            if let Some(tag_block_end) = scan_markdoc_tag_end(&bytes[ix..]) {
+                if let Some(..) = scan_blank_line(&bytes[(ix + tag_block_end)..]) {
+                    return None;
+                }
+            }
         }
 
         let (ix, row_ix) = self.parse_table_row_inner(ix, row_cells);
@@ -485,23 +497,17 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         if let TableParseMode::Active = mode {
                             return LoopInstruction::BreakAtWith(ix, None);
                         }
- 
                         // Terminate previous item if the next line is a block markdoc tag
                         if self.options.contains(Options::ENABLE_MARKDOC_TAGS) {
-                            let first_char = scan_whitespace_no_nl(&bytes[(ix + 1)..]);
-                            if let Some(tag_end) =
-                                scan_markdoc_tag_end(&bytes[(ix + first_char + 1)..])
-                            {
-                                // Only do it if block-level tag is on a line by itself
-                                let is_block = bytes[(ix + first_char + 1 + tag_end)..]
-                                    .iter()
-                                    .find(|&&b| b != b' ' && b != b'\t')
-                                    .map_or(true, |&b| b == b'\r' || b == b'\n');
-                                if is_block {
+                            let first_char = scan_whitespace_no_nl(&bytes[(ix + 1)..]) + ix + 1;
+                            if let Some(tag_end) = scan_markdoc_tag_end(&bytes[first_char..]) {
+                                if let Some(..) = scan_blank_line(&bytes[(first_char + tag_end)..])
+                                {
                                     return LoopInstruction::BreakAtWith(ix, None);
                                 }
                             }
                         }
+
                         let mut i = ix;
                         let eol_bytes = scan_eol(&bytes[ix..]).unwrap();
                         if mode == TableParseMode::Scan && pipes > 0 {
@@ -958,6 +964,26 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             let remaining_space = line_start.remaining_space();
             ix += line_start.bytes_scanned();
             let next_ix = ix + scan_nextline(&bytes[ix..]);
+
+            if self.options.contains(Options::ENABLE_MARKDOC_TAGS) {
+                if let Some(tag_start) = self.text[ix..next_ix].find("{%") {
+                    if let Some(tag_end) = scan_markdoc_tag_end(&bytes[ix + tag_start..]) {
+                        if let Some(nl) = scan_blank_line(&bytes[ix + tag_start + tag_end..]) {
+                            if self.text[ix..ix + tag_start].trim() == "" {
+                                self.tree.append(Item {
+                                    start: ix + tag_start,
+                                    end: ix + tag_start + tag_end,
+                                    body: ItemBody::MarkdocTag(false),
+                                });
+
+                                ix = ix + tag_start + tag_end + nl;
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+
             self.append_code_text(remaining_space, ix, next_ix);
             ix = next_ix;
         }
@@ -968,7 +994,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         ix + scan_blank_line(&bytes[ix..]).unwrap_or(0)
     }
 
-    fn append_code_text(&mut self, remaining_space: usize, start: usize, end: usize) {
+    fn append_code_text(&mut self, remaining_space: usize, mut start: usize, end: usize) {
         if remaining_space > 0 {
             let cow_ix = self.allocs.allocate_cow("   "[..remaining_space].into());
             self.tree.append(Item {
@@ -977,6 +1003,29 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 body: ItemBody::SynthesizeText(cow_ix),
             });
         }
+
+        if self.options.contains(Options::ENABLE_MARKDOC_TAGS) {
+            loop {
+                if let Some(tag_start) = self.text[start..end].find("{%") {
+                    if let Some(tag_end) =
+                        scan_markdoc_tag_end(&self.text.as_bytes()[start + tag_start..])
+                    {
+                        self.tree.append_text(start, start + tag_start);
+                        self.tree.append(Item {
+                            start: start + tag_start,
+                            end: start + tag_start + tag_end,
+                            body: ItemBody::MarkdocTag(true),
+                        });
+
+                        start += tag_start + tag_end;
+                        continue;
+                    }
+                }
+
+                break;
+            }
+        }
+
         if self.text.as_bytes()[end - 2] == b'\r' {
             // Normalize CRLF to LF
             self.tree.append_text(start, end - 2);

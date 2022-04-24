@@ -1299,6 +1299,20 @@ pub(crate) fn scan_inline_html_processing(
     None
 }
 
+pub fn markdoc_tag_has_name(text: &str) -> bool {
+    if !text.starts_with("{%") || !text.ends_with("%}") {
+        return false;
+    }
+
+    text[2..text.len() - 2]
+        .trim_start()
+        .split_ascii_whitespace()
+        .next()
+        .map_or(false, |n| {
+            n.chars().all(|ch| ch == '/' || ch == '-' || ch == '_' || ch.is_ascii_alphanumeric())
+        })
+}
+
 enum MarkdocScanState {
     Normal,
     String,
@@ -1307,7 +1321,7 @@ enum MarkdocScanState {
 
 pub fn scan_markdoc_tag_end(bytes: &[u8]) -> Option<usize> {
     if !bytes.starts_with(b"{%") {
-        return None
+        return None;
     }
     
     let mut state = MarkdocScanState::Normal;
@@ -1317,11 +1331,11 @@ pub fn scan_markdoc_tag_end(bytes: &[u8]) -> Option<usize> {
                 b'"' => state = MarkdocScanState::Normal,
                 b'\\' => state = MarkdocScanState::Escape,
                 _ => ()
-            },
+            }
             MarkdocScanState::Escape => state = MarkdocScanState::String,
             MarkdocScanState::Normal => {
                 if bytes[i..].starts_with(b"%}") {
-                    return Some(i + 2)
+                    return Some(i + 2);
                 }
 
                 if *ch == b'"' {
@@ -1351,10 +1365,17 @@ mod test {
 
     #[test]
     fn markdoc_scan_test() {
+        assert!(markdoc_tag_has_name("{% foo %}"));
+        assert!(markdoc_tag_has_name("{% foo%}"));
+        assert!(markdoc_tag_has_name("{%foo%}"));
+        assert!(markdoc_tag_has_name("{% /foo %}"));
+        assert!(!markdoc_tag_has_name("{% .bar %}"));
+        assert!(!markdoc_tag_has_name("{% bar=1 %}"));
+        assert!(!markdoc_tag_has_name("{% $foo %}"));
         assert_eq!(scan_markdoc_tag_end(b"{% this is a test %} foo"), Some(20));
         assert_eq!(scan_markdoc_tag_end(b"{% this is {{ a test %} foo"), Some(23));
         assert_eq!(scan_markdoc_tag_end(b"{% this is {{ test }} a test %} foo"), Some(31));
-        assert_eq!(scan_markdoc_tag_end(b"{% this is {{% test }} a test %} foo"), None);
+        assert_eq!(scan_markdoc_tag_end(b"{% this is {{% test }} a test %} foo"), Some(32));
         assert_eq!(scan_markdoc_tag_end(b"{% this \"is\" a test %} foo"), Some(22));
         assert_eq!(scan_markdoc_tag_end(b"{% this \"{% is %}\" a test %} foo"), Some(28));
         assert_eq!(scan_markdoc_tag_end(b"{% this \"{% is %} a test %} foo"), None);
